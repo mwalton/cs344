@@ -124,17 +124,27 @@ void gaussian_blur(const unsigned char* const inputChannel,
     if (thread_2D_pos.x >= numCols || thread_2D_pos.y >= numRows)
         return;
     
-    float sum = 0;
-    const int2 filterSize = make_int2(filterWidth, filterWidth);
+    int mid = filterWidth / 2;
+    float blur = 0.f;
     
-    for (int i = 0; i < filterSize.x; i++) {
-        for (int j = 0; j < filterSize.y; j++) {
-            float weight = filter[j * filterSize.y + i];
-            //sum += inputChannel[thread_1D_pos + (j * filterSize.y + i)];
+    for (int i = -mid; i <= mid; i++) {
+        for (int j = -mid; j <= mid; j++) {
+            int h = min(max( thread_2D_pos.y + 1, 0), numRows - 1);
+            int w = min(max( thread_2D_pos.x + 1, 0), numCols - 1);
+            
+            //get the pixel index and corresponding value from inputChannel
+            int idx = w + numCols * h;
+            float pixel = static_cast<float>(inputChannel[idx]);
+            
+            //get the weight value from the convulution matrix
+            idx = ( i + mid ) * filterWidth + j + mid;
+            float weight = filter[idx];
+            
+            blur += weight * pixel;
         }
     }
     
-    outputChannel[thread_1D_pos] = inputChannel[thread_1D_pos];
+    outputChannel[thread_1D_pos] = static_cast<unsigned char>(blur);
     
   
   // NOTE: If a thread's absolute position 2D position is within the image, but some of
