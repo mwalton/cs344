@@ -130,10 +130,11 @@ void gaussian_blur(const unsigned char* const inputChannel,
     for (int i = 0; i < filterSize.x; i++) {
         for (int j = 0; j < filterSize.y; j++) {
             float weight = filter[j * filterSize.y + i];
-            printf("(%d,%d) = %f\n", i, j, weight);
-            //sum += inputChannel[thread_2D_pos - filterSize]
+            //sum += inputChannel[thread_1D_pos + (j * filterSize.y + i)];
         }
     }
+    
+    outputChannel[thread_1D_pos] = inputChannel[thread_1D_pos];
     
   
   // NOTE: If a thread's absolute position 2D position is within the image, but some of
@@ -264,7 +265,14 @@ void your_gaussian_blur(const uchar4 * const h_inputImageRGBA, uchar4 * const d_
                                            d_redBlurred,
                                            numRows, numCols,
                                            d_filter, filterWidth);
-
+    gaussian_blur<<<gridSize, blockSize>>>(d_green,
+                                           d_greenBlurred,
+                                           numRows, numCols,
+                                           d_filter, filterWidth);
+    gaussian_blur<<<gridSize, blockSize>>>(d_blue,
+                                           d_blueBlurred,
+                                           numRows, numCols,
+                                           d_filter, filterWidth);
   // Again, call cudaDeviceSynchronize(), then call checkCudaErrors() immediately after
   // launching your kernel to make sure that you didn't make any mistakes.
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
