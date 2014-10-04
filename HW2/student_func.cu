@@ -105,7 +105,7 @@
 #include <stdio.h>
 
 #define BLOCK_WIDTH 32
-
+/*
 __global__
 void gaussian_blur(const unsigned char* const inputChannel,
                    unsigned char* const outputChannel,
@@ -144,7 +144,7 @@ void gaussian_blur(const unsigned char* const inputChannel,
         }
     }
     
-    outputChannel[thread_1D_pos] = static_cast<unsigned char>(blur);
+    outputChannel[thread_1D_pos] = inputChannel[thread_1D_pos];//static_cast<unsigned char>(blur);
     
   
   // NOTE: If a thread's absolute position 2D position is within the image, but some of
@@ -154,7 +154,58 @@ void gaussian_blur(const unsigned char* const inputChannel,
   // to be within the bounds of the image. If this is not clear to you, then please refer
   // to sequential reference solution for the exact clamping semantics you should follow.
 }
+*/
+ __global__
+void gaussian_blur(const unsigned char* const inputChannel,
+               unsigned char* const outputChannel,
+               int numRows, int numCols,
+               const float* const filter, const int filterWidth)
+{
+  // TODO
+    //int blockPixelSize = blockDim.x*blockDim.y*blockDim.z;
+    const int2 thread_2D_pos = make_int2( blockIdx.x * blockDim.x + threadIdx.x,
+                                    blockIdx.y * blockDim.y + threadIdx.y);
 
+   const int thread_1D_pos = thread_2D_pos.y * numCols + thread_2D_pos.x;
+    //printf("id: %d\n", id);
+    int absolute_image_position_x = thread_2D_pos.x;
+    int absolute_image_position_y = thread_2D_pos.y;
+    if ( absolute_image_position_x >= numCols||
+    absolute_image_position_y >= numRows)
+    return;
+
+    const int median = floorf(filterWidth * filterWidth /2);
+    const int cr = floorf(median / filterWidth) ;
+    const int cl = median % filterWidth;
+
+    float bv = 0.0f;
+    float temp = 0.0f;
+    for (int i = 0; i < filterWidth ; ++i)
+    {
+    for (int j = 0; j < filterWidth ; ++j)
+    {
+        int gnx = absolute_image_position_x - (cr - i); 
+        int gny = absolute_image_position_y - (j - cl);
+        if ( gnx >= numCols)
+            gnx = numCols -1;
+        else if( gnx < 0)
+            gnx = 0;
+
+        if ( gny >= numRows)
+           gny = numRows -1;
+        else if (gny < 0)
+          gny  = 0;
+
+        const int neighbor_id = gny * numCols + gnx;
+        temp = inputChannel[neighbor_id] * filter[i*filterWidth+j];
+
+        bv += temp;    
+    }
+    }
+    outputChannel[thread_1D_pos] = roundf(bv);
+    return;
+
+}
 //This kernel takes in an image represented as a uchar4 and splits
 //it into three images consisting of only one color channel each
 __global__
