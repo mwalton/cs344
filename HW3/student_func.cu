@@ -4,7 +4,7 @@
   Background HDR
   ==============
 
-  A High Definition Range (HDR) image contains a wider variation of intensity
+  A High Dynamic Range (HDR) image contains a wider variation of intensity
   and color than is allowed by the RGB format with 1 byte per channel that we
   have used in the previous assignment.  
 
@@ -79,7 +79,57 @@
 
 */
 
+
+#include "reference_calc.cpp"
 #include "utils.h"
+#include "stdio.h"
+#define BLOCK_WIDTH 32
+
+__global__ void cudaMin(const float *d_in, float *d_out) {
+    // sdata is alloc'd in 3rd arg to kernel call
+    extern __shared__ float sdata[];
+    
+    int myId = threadIdx.x + blockDim.x * blockIdx.x;
+    int tid = threadIdx.x;
+    
+    // load shared mem from global
+    sdata[tid] = d_in[myId];
+    __syncthreads(); // ensure whole block is loaded
+    
+    // do the reduce (to min)
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>=1 ) {
+        if (tid < s)
+            sdata[tid] = min( sdata[tid], sdata[tid + s] );
+        __syncthreads(); // ensure all adds are done for this step
+    }
+    
+    // write thread 0 back to global mem
+    if (tid == 0)
+        d_out[blockIdx.x] = sdata[0];
+}
+
+__global__ void cudaMax(const float *d_in, float *d_out) {
+    // sdata is alloc'd in 3rd arg to kernel call
+    extern __shared__ float sdata[];
+    
+    int myId = threadIdx.x + blockDim.x * blockIdx.x;
+    int tid = threadIdx.x;
+    
+    // load shared mem from global
+    sdata[tid] = d_in[myId];
+    __syncthreads(); // ensure whole block is loaded
+    
+    // do the reduce (to min)
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>=1 ) {
+        if (tid < s)
+            sdata[tid] = max( sdata[tid], sdata[tid + s] );
+        __syncthreads(); // ensure all adds are done for this step
+    }
+    
+    // write thread 0 back to global mem
+    if (tid == 0)
+        d_out[blockIdx.x] = sdata[0];
+}
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   unsigned int* const d_cdf,
@@ -89,6 +139,29 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   const size_t numCols,
                                   const size_t numBins)
 {
+    //const dim3 threadsPerBlock(32,32);
+    //const dim3 numBlocks((numCols + 1) / threadsPerBlock.x, (numRows + 1) / threadsPerBlock.y);
+    const int maxThreadsPerBlock = 1024;
+    int threads = maxThreadsPerBlock;
+    int blocks = (numRows * numCols) / maxThreadsPerBlock;
+    
+    float *d_min, *d_max, *d_min_array, *d_max_array;
+    float h_tmp;
+    
+    cudaMalloc((void **) &d_min, sizeof(float));
+    cudaMalloc((void **) &d_max, sizeof(float));
+    cudaMalloc((void **) &d_min_array, sizeof(d_logLuminance));
+    cudaMalloc((void **) &d_max_array, sizeof(d_logLuminance));
+    
+    cudaMin<<<blocks, threads, threads * sizeof(float)>>>(d_logLuminance, d_min_array);
+    cudaMin<<< 1, blocks, blocks * sizeof(float)>>>(d_min_array, d_min);
+        
+    cudaMax<<<blocks, threads, threads * sizeof(float)>>>(d_logLuminance, d_max_array);
+    cudaMax<<< 1, blocks, blocks * sizeof(float)>>>(d_max_array, d_max);
+    
+    cudaMemcpy(&h_tmp, d_max, sizeof(float), cudaMemcpyDeviceToHost);
+    printf("%f\n", h_tmp);
+    
   //TODO
   /*Here are the steps you need to implement
     1) find the minimum and maximum value in the input logLuminance channel
@@ -99,6 +172,4 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
     4) Perform an exclusive scan (prefix sum) on the histogram to get
        the cumulative distribution of luminance values (this should go in the
        incoming d_cdf pointer which already has been allocated for you)       */
-
-
 }
