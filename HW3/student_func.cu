@@ -83,7 +83,15 @@
 #include "reference_calc.cpp"
 #include "utils.h"
 #include "stdio.h"
-#define BLOCK_WIDTH 32
+
+__global__ void doHisto(const float *lum, unsigned int *histo,
+                        const float lumMin, const float lumRange,
+                        const int nBins) {
+    int myId = threadIdx.x + blockDim.x * blockIdx.x;
+    int binIdx = ( lum[myId] - lumMin ) / lumRange * nBins;
+    
+    histo[binIdx]++;
+}
 
 __global__ void cudaMin(const float *d_in, float *d_out) {
     // sdata is alloc'd in 3rd arg to kernel call
@@ -145,13 +153,18 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
     int threads = maxThreadsPerBlock;
     int blocks = (numRows * numCols) / maxThreadsPerBlock;
     
-    float *d_min, *d_max, *d_min_array, *d_max_array;
-    float h_tmp;
+    float *d_min, *d_max, *d_min_array, *d_max_array, *d_range;
+    unsigned int *d_histo, *h_histo;
+    float h_max, h_min, h_range;
     
     cudaMalloc((void **) &d_min, sizeof(float));
     cudaMalloc((void **) &d_max, sizeof(float));
+    cudaMalloc((void **) &d_range, sizeof(float));
     cudaMalloc((void **) &d_min_array, sizeof(d_logLuminance));
     cudaMalloc((void **) &d_max_array, sizeof(d_logLuminance));
+    cudaMalloc((void **) &d_histo, sizeof(unsigned int) * numBins);
+    cudaMemset(d_histo, 0, sizeof(unsigned int) * numBins);
+    h_histo = (unsigned int*)malloc(sizeof(unsigned int) * numBins);
     
     cudaMin<<<blocks, threads, threads * sizeof(float)>>>(d_logLuminance, d_min_array);
     cudaMin<<< 1, blocks, blocks * sizeof(float)>>>(d_min_array, d_min);
@@ -159,10 +172,20 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
     cudaMax<<<blocks, threads, threads * sizeof(float)>>>(d_logLuminance, d_max_array);
     cudaMax<<< 1, blocks, blocks * sizeof(float)>>>(d_max_array, d_max);
     
-    cudaMemcpy(&h_tmp, d_max, sizeof(float), cudaMemcpyDeviceToHost);
-    printf("%f\n", h_tmp);
+    cudaMemcpy(&h_max, d_max, sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&h_min, d_min, sizeof(float), cudaMemcpyDeviceToHost);
+    h_range = h_max - h_min;
     
-  //TODO
+    cudaMemcpy(d_range, &h_range, sizeof(float), cudaMemcpyHostToDevice);
+  
+    printf("max: %f min: %f range: %f\n", h_max, h_min, h_range);
+    
+    doHisto<<<blocks, threads>>>(d_logLuminance, d_histo, h_min, h_range, numBins);
+    cudaMemcpy(h_histo, d_histo, sizeof(unsigned int) * numBins, cudaMemcpyDeviceToHost);
+    for (int i = 0; i < numBins; i++) {
+        printf("%d\n", h_histo[i]);
+    }
+    //TODO
   /*Here are the steps you need to implement
     1) find the minimum and maximum value in the input logLuminance channel
        store in min_logLum and max_logLum
